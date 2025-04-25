@@ -1,5 +1,0 @@
-<record id="category_hospital" model="ir.module.category">
-    <field name="name">Hospital Management</field>
-    <field name="description">Groups related to hospital features and permissions.</field>
-    <field name="sequence">10</field>
-</record>
