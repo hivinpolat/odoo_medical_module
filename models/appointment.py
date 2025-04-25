@@ -108,7 +108,14 @@ class HospitalAppointment(models.Model):
             'origin': f"Appointment #{self.code or self.id}",
         })
 
-
+        self.env['sale.order.line'].create({
+            'order_id': sale_order.id,
+            'appointment_id': self.id,
+            'name': f"Service for appointment {self.code or self.id}",
+            'product_uom_qty': 1,
+            'price_unit': 100.0,
+            'product_id': self.env.ref('product.product_product_4').id,
+        })
 
         return {
             'type': 'ir.actions.act_window',
@@ -118,7 +125,34 @@ class HospitalAppointment(models.Model):
             'res_id': sale_order.id,
         }
 
+    def create_invoice_button(self):
+        self.ensure_one()
+        sale_order = self.env['sale.order'].search([('appointment_id', '=', self.id)], limit=1)
+        if not sale_order:
+            raise ValueError("No sale order found for this appointment.")
 
+        invoice_vals = {
+            'move_type': 'out_invoice',
+            'partner_id': sale_order.partner_id.id,
+            'invoice_origin': sale_order.name,
+            'appointment_id': self.id,
+            'invoice_line_ids': [(0, 0, {
+                'product_id': line.product_id.id,
+                'quantity': line.product_uom_qty,
+                'price_unit': line.price_unit,
+                'name': line.name,
+            }) for line in sale_order.order_line],
+        }
+
+        invoice = self.env['account.move'].create(invoice_vals)
+
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Created Invoice',
+            'res_model': 'account.move',
+            'view_mode': 'form',
+            'res_id': invoice.id,
+        }
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
@@ -171,7 +205,7 @@ class AccountMove(models.Model):
 
 class AccountPayment(models.Model):
     _inherit = 'account.payment'
-    appointment_id = fields.Many2one('hospital.appointment', string="Appointment", store=True)
+    appointment_id = fields.Many2one('hospital.appointment', string="Appointment")
 
     @api.model
     def create(self, vals):
