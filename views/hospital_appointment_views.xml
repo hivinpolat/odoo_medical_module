@@ -97,7 +97,7 @@
         <field name="arch" type="xml">
             <tree>
                 <field name="appointment_date"/>
-                <field name="code"/>
+                <field name="code", readonly="1"/>
                 <field name="patient_id"/>
                 <field name="stage"/>
                 <field name="sale_order_count"/>
