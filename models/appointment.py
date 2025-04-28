@@ -5,6 +5,7 @@ class HospitalAppointment(models.Model):
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _description = 'Hospital Appointment'
     _rec_name = 'code'
+
     appointment_date = fields.Datetime(string="Appointment Date", required=True, store=True, tracking=True)
     code = fields.Char(string="Code", readonly=True, copy=False, store=True, tracking=True)
     doctor_id = fields.Many2many('hospital.doctor', string="Doctors", store=True, tracking=True)
@@ -18,8 +19,9 @@ class HospitalAppointment(models.Model):
     treatment_id = fields.One2many('hospital.treatment', 'appointment_id', string="Treatments", store=True, tracking=True, ondelete='cascade')
 
     currency_id = fields.Many2one('res.currency', string='Currency', default=lambda self: self.env.company.currency_id, store=True, tracking=True)
-    total_amount = fields.Monetary(string="Total Amount", compute="_compute_total_amount", store=True, currency_field='currency_id', tracking=True)
-    pending_amount = fields.Monetary(string="Pending Amount", compute="_compute_total_amount", store=True, currency_field='currency_id', tracking=True)
+
+    total_amount = fields.Monetary(string="Total Amount", compute="_compute_amounts", store=True, currency_field='currency_id', tracking=True)
+    pending_amount = fields.Monetary(string="Pending Amount", compute="_compute_amounts", store=True, currency_field='currency_id', tracking=True)
 
     sale_order_lines = fields.One2many('sale.order.line', 'appointment_id', string="Sale Order Lines", store=True, tracking=True, ondelete='cascade')
     sale_order_ids = fields.One2many('sale.order', 'appointment_id', string="Sale Orders", store=True, tracking=True, ondelete='cascade')
@@ -30,11 +32,14 @@ class HospitalAppointment(models.Model):
     invoice_count = fields.Integer(string="Invoice Count", compute="_compute_invoice_count", store=True, tracking=True)
     payment_count = fields.Integer(string="Payment Count", compute="_compute_payment_count", store=True, tracking=True)
 
-    @api.depends('sale_order_lines.price_unit', 'sale_order_lines.product_uom_qty')
-    def _compute_total_amount(self):
+
+    @api.depends('invoice_ids.amount_total', 'invoice_ids.amount_residual')
+    def _compute_amounts(self):
         for record in self:
-            total = sum(line.price_unit * line.product_uom_qty for line in record.sale_order_lines)
+            total = sum(invoice.amount_total for invoice in record.invoice_ids)
+            pending = sum(invoice.amount_residual for invoice in record.invoice_ids)
             record.total_amount = total
+            record.pending_amount = pending
 
     @api.model
     def create(self, vals):
@@ -106,8 +111,6 @@ class HospitalAppointment(models.Model):
             'appointment_id': self.id,
             'origin': f"Appointment #{self.code or self.id}",
         })
-
-
         return {
             'type': 'ir.actions.act_window',
             'name': 'Created Sale Order',
@@ -115,8 +118,6 @@ class HospitalAppointment(models.Model):
             'view_mode': 'form',
             'res_id': sale_order.id,
         }
-
-
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
@@ -137,22 +138,24 @@ class SaleOrder(models.Model):
             'context': {'default_appointment_id': self.appointment_id.id},
         }
 
-
-
-
 class AccountMove(models.Model):
     _inherit = 'account.move'
     appointment_id = fields.Many2one('hospital.appointment', string="Appointment")
 
     @api.model
     def create(self, vals):
-        # Automatically link invoice to appointment via sale order
-        if not vals.get('appointment_id') and vals.get('invoice_origin'):
-            sale_order = self.env['sale.order'].search([('name', '=', vals['invoice_origin'])], limit=1)
-            if sale_order and sale_order.appointment_id:
-                vals['appointment_id'] = sale_order.appointment_id.id
-        return super(AccountMove, self).create(vals)
-    
+        move = super().create(vals)
+
+        if not move.appointment_id and move.invoice_line_ids:
+            for line in move.invoice_line_ids:
+                if line.sale_line_ids:
+                    sale_order = line.sale_line_ids[0].order_id
+                    if sale_order and sale_order.appointment_id:
+                        move.appointment_id = sale_order.appointment_id.id
+                        break 
+
+        return move
+
     def action_open_appointment(self):
         self.ensure_one()
         return {
@@ -163,9 +166,6 @@ class AccountMove(models.Model):
             'res_id': self.appointment_id.id,
             'context': {'default_appointment_id': self.appointment_id.id},
         }
-
-    
-
 
 class AccountPayment(models.Model):
     _inherit = 'account.payment'
@@ -173,15 +173,14 @@ class AccountPayment(models.Model):
 
     @api.model
     def create(self, vals):
-        # Link payment to appointment via invoice
-        if not vals.get('appointment_id') and vals.get('invoice_ids'):
-            invoices = self.env['account.move'].browse(vals['invoice_ids'][0][2])  # [0][2] = list of invoice IDs
-            if invoices:
-                appointment = invoices[0].appointment_id
-                if appointment:
-                    vals['appointment_id'] = appointment.id
+       
+        if not vals.get('appointment_id') and vals.get('move_id'):
+            move = self.env['account.move'].browse(vals['move_id'])
+            if move and move.appointment_id:
+                vals['appointment_id'] = move.appointment_id.id
+
         return super(AccountPayment, self).create(vals)
-    
+
     def action_open_appointment(self):
         self.ensure_one()
         return {
@@ -192,4 +191,3 @@ class AccountPayment(models.Model):
             'res_id': self.appointment_id.id,
             'context': {'default_appointment_id': self.appointment_id.id},
         }
-
