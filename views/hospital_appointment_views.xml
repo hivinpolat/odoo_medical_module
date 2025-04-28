@@ -57,7 +57,7 @@
 
                     <group>
                         <field name="appointment_date" attrs="{'readonly': [('stage', 'in', ['done', 'cancel'])]}"/>
-                        <field name="code" attrs="{'readonly': [('stage', 'in', ['done', 'cancel'])]}"/>
+                        <field name="code" readonly="1"/>
                         <field name="doctor_id" widget="many2many_tags" attrs="{'readonly': [('stage', 'in', ['done', 'cancel'])]}"/>
                         <field name="patient_id" attrs="{'readonly': [('stage', 'in', ['done', 'cancel'])]}"/>
                         <field name="stage" attrs="{'readonly': [('stage', 'in', ['done', 'cancel'])]}"/>
@@ -97,7 +97,7 @@
         <field name="arch" type="xml">
             <tree>
                 <field name="appointment_date"/>
-                <field name="code", readonly="1"/>
+                <field name="code"/>
                 <field name="patient_id"/>
                 <field name="stage"/>
                 <field name="sale_order_count"/>

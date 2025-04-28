@@ -5,31 +5,30 @@ class HospitalAppointment(models.Model):
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _description = 'Hospital Appointment'
     _rec_name = 'code'
-
     appointment_date = fields.Datetime(string="Appointment Date", required=True, store=True, tracking=True)
     code = fields.Char(string="Code", readonly=True, copy=False, store=True, tracking=True)
     doctor_id = fields.Many2many('hospital.doctor', string="Doctors", store=True, tracking=True)
-    patient_id = fields.Many2one('hospital.patient', string="Patient", store=True, tracking=True)
+    patient_id = fields.Many2one('hospital.patient', string="Patient", store=True, tracking=True, ondelete='cascade')
     stage = fields.Selection([
         ('draft', 'Draft'),
         ('in_progress', 'In Progress'),
         ('done', 'Done'),
         ('cancel', 'Cancelled')
     ], string="Stage", default='draft', store=True, tracking=True)
-    treatment_id = fields.One2many('hospital.treatment', 'appointment_id', string="Treatments", store=True, tracking=True)
+    treatment_id = fields.One2many('hospital.treatment', 'appointment_id', string="Treatments", store=True, tracking=True, ondelete='cascade')
 
-    currency_id = fields.Many2one('res.currency', string='Currency', default=lambda self: self.env.company.currency_id)
-    total_amount = fields.Monetary(string="Total Amount", compute="_compute_total_amount", store=True, currency_field='currency_id')
-    pending_amount = fields.Monetary(string="Pending Amount", compute="_compute_total_amount", store=True, currency_field='currency_id')
+    currency_id = fields.Many2one('res.currency', string='Currency', default=lambda self: self.env.company.currency_id, store=True, tracking=True)
+    total_amount = fields.Monetary(string="Total Amount", compute="_compute_total_amount", store=True, currency_field='currency_id', tracking=True)
+    pending_amount = fields.Monetary(string="Pending Amount", compute="_compute_total_amount", store=True, currency_field='currency_id', tracking=True)
 
-    sale_order_lines = fields.One2many('sale.order.line', 'appointment_id', string="Sale Order Lines")
-    sale_order_ids = fields.One2many('sale.order', 'appointment_id', string="Sale Orders")
-    invoice_ids = fields.One2many('account.move', 'appointment_id', string="Invoices")
-    payment_ids = fields.One2many('account.payment', 'appointment_id', string="Payments")
+    sale_order_lines = fields.One2many('sale.order.line', 'appointment_id', string="Sale Order Lines", store=True, tracking=True, ondelete='cascade')
+    sale_order_ids = fields.One2many('sale.order', 'appointment_id', string="Sale Orders", store=True, tracking=True, ondelete='cascade')
+    invoice_ids = fields.One2many('account.move', 'appointment_id', string="Invoices", store=True, tracking=True, ondelete='cascade')
+    payment_ids = fields.One2many('account.payment', 'appointment_id', string="Payments", store=True, tracking=True, ondelete='cascade')
 
-    sale_order_count = fields.Integer(string="Sale Order Count", compute="_compute_sale_order_count")
-    invoice_count = fields.Integer(string="Invoice Count", compute="_compute_invoice_count")
-    payment_count = fields.Integer(string="Payment Count", compute="_compute_payment_count")
+    sale_order_count = fields.Integer(string="Sale Order Count", compute="_compute_sale_order_count", store=True, tracking=True)
+    invoice_count = fields.Integer(string="Invoice Count", compute="_compute_invoice_count", store=True, tracking=True)
+    payment_count = fields.Integer(string="Payment Count", compute="_compute_payment_count", store=True, tracking=True)
 
     @api.depends('sale_order_lines.price_unit', 'sale_order_lines.product_uom_qty')
     def _compute_total_amount(self):
@@ -108,14 +107,6 @@ class HospitalAppointment(models.Model):
             'origin': f"Appointment #{self.code or self.id}",
         })
 
-        self.env['sale.order.line'].create({
-            'order_id': sale_order.id,
-            'appointment_id': self.id,
-            'name': f"Service for appointment {self.code or self.id}",
-            'product_uom_qty': 1,
-            'price_unit': 100.0,
-            'product_id': self.env.ref('product.product_product_4').id,
-        })
 
         return {
             'type': 'ir.actions.act_window',
@@ -125,34 +116,7 @@ class HospitalAppointment(models.Model):
             'res_id': sale_order.id,
         }
 
-    def create_invoice_button(self):
-        self.ensure_one()
-        sale_order = self.env['sale.order'].search([('appointment_id', '=', self.id)], limit=1)
-        if not sale_order:
-            raise ValueError("No sale order found for this appointment.")
 
-        invoice_vals = {
-            'move_type': 'out_invoice',
-            'partner_id': sale_order.partner_id.id,
-            'invoice_origin': sale_order.name,
-            'appointment_id': self.id,
-            'invoice_line_ids': [(0, 0, {
-                'product_id': line.product_id.id,
-                'quantity': line.product_uom_qty,
-                'price_unit': line.price_unit,
-                'name': line.name,
-            }) for line in sale_order.order_line],
-        }
-
-        invoice = self.env['account.move'].create(invoice_vals)
-
-        return {
-            'type': 'ir.actions.act_window',
-            'name': 'Created Invoice',
-            'res_model': 'account.move',
-            'view_mode': 'form',
-            'res_id': invoice.id,
-        }
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
